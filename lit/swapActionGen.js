@@ -1,108 +1,5 @@
 import { ethers } from 'ethers';
 
-// caller functions ----------------------------
-
-const btcParams = {
-    counterPartyAddress:
-        "tb1pdj2gvzymxtmcrs5ypm3pya8vc3h4fkk2g9kmav0j6skgruez88rs9f4zya",
-    network: "testnet",
-    value: 8000,
-    ethAddress: "0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b",
-};
-
-const ethParams = {
-    counterPartyAddress: "0x9A6687E110186Abedf287085Da1f9bdD4d90D858",
-    chain: "ethereum",
-    amount: "1",
-    btcAddress:
-        "tb1pg3vxcftwr5af70k34z0ae7g7xevzmtzccdfew4n4f4hf3al0xkvs98y7k9",
-};
-
-async function simulator() {
-    const result = await generateBtcEthSwapLitActionCode(btcParams, ethParams);
-    console.log(result);
-}
-simulator();
-
-// primary functions ----------------------------
-
-async function generateBtcEthSwapLitActionCode(btcParams, ethParams, fileName) {
-    const evmConditions = generateEVMNativeSwapCondition(ethParams);
-    const unsignedEthTransaction = generateUnsignedEVMNativeTransaction({
-        counterPartyAddress: btcParams.ethAddress,
-        amount: ethParams.amount,
-        chainId: ethParams.chainId,
-    });
-
-    const unsignedEthClawbackTransaction = generateUnsignedEVMNativeTransaction(
-        {
-            counterPartyAddress: ethParams.counterPartyAddress,
-            amount: ethParams.amount,
-            chainId: ethParams.chainId,
-        }
-    );
-
-    const variablesToReplace = {
-        btcSwapParams: JSON.stringify(btcParams),
-        ethSwapParams: JSON.stringify(ethParams),
-        evmConditions: JSON.stringify(evmConditions),
-        evmTransaction: JSON.stringify(unsignedEthTransaction),
-        evmClawbackTransaction: JSON.stringify(unsignedEthClawbackTransaction),
-    };
-
-    return await loadActionCode(variablesToReplace);
-}
-
-function generateEVMNativeSwapCondition({ chain, amount }) {
-    return {
-        contractAddress: "",
-        standardContractType: "",
-        chain: chain,
-        method: "eth_getBalance",
-        parameters: ["address"],
-        returnValueTest: {
-            comparator: ">=",
-            value: ethers.utils.parseEther(amount).toString(),
-        },
-    };
-}
-
-function generateUnsignedEVMNativeTransaction({
-    counterPartyAddress,
-    amount,
-    from,
-    nonce,
-    chainId
-}) {
-    return {
-        to: counterPartyAddress,
-        nonce: nonce || 0,
-        chainId: chainId,
-        gasLimit: "21000",
-        from: from || "{{pkpPublicKey}}",
-        value: ethers.utils.parseEther(amount).toString(),
-        type: 2,
-    };
-}
-
-async function loadActionCode(variables) {
-    try {
-        let result = rawLitAction;
-        
-        for (const key in variables) {
-            if (Object.prototype.hasOwnProperty.call(variables, key)) {
-                const placeholder = `{{${key}}}`;
-                const value = variables[key];
-                result = result.split(placeholder).join(value);
-            }
-        }
-
-        return result;
-    } catch (err) {
-        console.log(`Error processing Lit action code: ${err}`);
-        return "";
-    }
-}
 
 // raw lit action ----------------------------
 
@@ -268,3 +165,107 @@ async function go() {
 
 go();
 `
+
+// caller functions ----------------------------
+
+const btcParams = {
+    counterPartyAddress:
+        "tb1pdj2gvzymxtmcrs5ypm3pya8vc3h4fkk2g9kmav0j6skgruez88rs9f4zya",
+    network: "testnet",
+    value: 8000,
+    ethAddress: "0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b",
+};
+
+const ethParams = {
+    counterPartyAddress: "0x9A6687E110186Abedf287085Da1f9bdD4d90D858",
+    chain: "ethereum",
+    amount: "1",
+    btcAddress:
+        "tb1pg3vxcftwr5af70k34z0ae7g7xevzmtzccdfew4n4f4hf3al0xkvs98y7k9",
+};
+
+async function simulator() {
+    const result = await generateBtcEthSwapLitActionCode(btcParams, ethParams);
+    console.log(result);
+}
+simulator();
+
+// primary functions ----------------------------
+
+async function generateBtcEthSwapLitActionCode(btcParams, ethParams, fileName) {
+    const evmConditions = generateEVMNativeSwapCondition(ethParams);
+    const unsignedEthTransaction = generateUnsignedEVMNativeTransaction({
+        counterPartyAddress: btcParams.ethAddress,
+        amount: ethParams.amount,
+        chainId: ethParams.chainId,
+    });
+
+    const unsignedEthClawbackTransaction = generateUnsignedEVMNativeTransaction(
+        {
+            counterPartyAddress: ethParams.counterPartyAddress,
+            amount: ethParams.amount,
+            chainId: ethParams.chainId,
+        }
+    );
+
+    const variablesToReplace = {
+        btcSwapParams: JSON.stringify(btcParams),
+        ethSwapParams: JSON.stringify(ethParams),
+        evmConditions: JSON.stringify(evmConditions),
+        evmTransaction: JSON.stringify(unsignedEthTransaction),
+        evmClawbackTransaction: JSON.stringify(unsignedEthClawbackTransaction),
+    };
+
+    return await loadActionCode(variablesToReplace);
+}
+
+function generateEVMNativeSwapCondition({ chain, amount }) {
+    return {
+        contractAddress: "",
+        standardContractType: "",
+        chain: chain,
+        method: "eth_getBalance",
+        parameters: ["address"],
+        returnValueTest: {
+            comparator: ">=",
+            value: ethers.utils.parseEther(amount).toString(),
+        },
+    };
+}
+
+function generateUnsignedEVMNativeTransaction({
+    counterPartyAddress,
+    amount,
+    from,
+    nonce,
+    chainId
+}) {
+    return {
+        to: counterPartyAddress,
+        nonce: nonce || 0,
+        chainId: chainId,
+        gasLimit: "21000",
+        from: from || "{{pkpPublicKey}}",
+        value: ethers.utils.parseEther(amount).toString(),
+        type: 2,
+    };
+}
+
+async function loadActionCode(variables) {
+    try {
+        let result = rawLitAction;
+        
+        for (const key in variables) {
+            if (Object.prototype.hasOwnProperty.call(variables, key)) {
+                const placeholder = `{{${key}}}`;
+                const value = variables[key];
+                result = result.split(placeholder).join(value);
+            }
+        }
+
+        return result;
+    } catch (err) {
+        console.log(`Error processing Lit action code: ${err}`);
+        return "";
+    }
+}
