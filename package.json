@@ -10,18 +10,25 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@lit-protocol/lit-node-client": "^6.2.2",
-    "@lit-protocol/contracts-sdk": "^6.2.2",
     "@lit-protocol/auth-helpers": "^6.2.2",
+    "@lit-protocol/contracts-sdk": "^6.2.2",
+    "@lit-protocol/lit-node-client": "^6.4.10",
     "@lit-protocol/types": "^6.2.2",
     "@simplewebauthn/browser": "^10.0.0",
     "axios": "^1.7.7",
+    "bitcoinjs-lib": "^7.0.0-rc.0",
+    "elliptic": "^6.5.7",
     "ethers": "^5.7.2",
     "next": "14.2.5",
+    "node-fetch": "^3.3.2",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^18",
+    "secp256k1": "^5.0.0",
+    "siwe": "^2.3.2",
+    "tiny-secp256k1": "^2.2.3"
   },
   "devDependencies": {
+    "@types/elliptic": "^6.4.18",
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
     "postcss": "^8",

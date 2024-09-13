@@ -1,6 +1,5 @@
 import { ethers } from 'ethers';
 
-
 // raw lit action ----------------------------
 
 const rawLitAction = `
@@ -166,33 +165,9 @@ async function go() {
 go();
 `
 
-// caller functions ----------------------------
-
-const btcParams = {
-    counterPartyAddress:
-        "tb1pdj2gvzymxtmcrs5ypm3pya8vc3h4fkk2g9kmav0j6skgruez88rs9f4zya",
-    network: "testnet",
-    value: 8000,
-    ethAddress: "0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b",
-};
-
-const ethParams = {
-    counterPartyAddress: "0x9A6687E110186Abedf287085Da1f9bdD4d90D858",
-    chain: "ethereum",
-    amount: "1",
-    btcAddress:
-        "tb1pg3vxcftwr5af70k34z0ae7g7xevzmtzccdfew4n4f4hf3al0xkvs98y7k9",
-};
-
-async function simulator() {
-    const result = await generateBtcEthSwapLitActionCode(btcParams, ethParams);
-    console.log(result);
-}
-simulator();
-
 // primary functions ----------------------------
 
-async function generateBtcEthSwapLitActionCode(btcParams, ethParams, fileName) {
+export async function generateBtcEthSwapLitActionCode(btcParams, ethParams, fileName) {
     const evmConditions = generateEVMNativeSwapCondition(ethParams);
     const unsignedEthTransaction = generateUnsignedEVMNativeTransaction({
         counterPartyAddress: btcParams.ethAddress,
