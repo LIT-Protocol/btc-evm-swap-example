@@ -1,10 +1,16 @@
 import { LitNodeClient } from "@lit-protocol/lit-node-client";
-import { SiweMessage } from "siwe";
 import { LitNetwork } from "@lit-protocol/constants";
 import { ec as EC } from 'elliptic';
 import * as bitcoin from 'bitcoinjs-lib';
 import { toOutputScript } from "bitcoinjs-lib/src/address";
+import * as ecc from '@bitcoin-js/tiny-secp256k1-asmjs';
+import { ethers } from "ethers";
+import {
+    createSiweMessageWithRecaps,
+    generateAuthSig,
+} from "@lit-protocol/auth-helpers";
 
+bitcoin.initEccLib(ecc);
 const ec = new EC('secp256k1');
 
 const litNodeClient = new LitNodeClient({
@@ -14,36 +20,39 @@ const litNodeClient = new LitNodeClient({
 
 export async function runBtcEthSwapLitAction({
     pkpPublicKey,
-    code,
+    ipfsId,
     sessionSig,
+    signer,
+    evmParams,
+    btcParams,
     ethGasConfig,
     btcFeeRate,
-    ethParams,
-    btcParams,
     isEthClawback = false,
     originTime,
 }) {
-    // try {
         let successHash, clawbackHash, utxo, successTxHex, clawbackTxHex;
         if (!isEthClawback) {
             ({ successHash, clawbackHash, utxo, successTxHex, clawbackTxHex } =
                 await prepareBtcSwapTransactions(
                     btcParams,
-                    ethParams,
-                    code,
+                    evmParams,
                     pkpPublicKey,
                     btcFeeRate
                 ));
         }
+
+        const authSig = await getAuthSig(signer);
+
         await litNodeClient.connect();
+
         const response = await litNodeClient.executeJs({
-            code: code,
-            authSig: sessionSig,
+            ipfsId: ipfsId,
+            sessionSigs: sessionSig,
             jsParams: {
                 pkpAddress: ethers.utils.computeAddress(pkpPublicKey),
                 pkpBtcAddress: generateBtcAddress(pkpPublicKey),
                 pkpPublicKey: pkpPublicKey,
-                authSig: authSig || (await generateAuthSig()),
+                authSig: authSig,
                 ethGasConfig: ethGasConfig,
                 btcFeeRate: btcFeeRate,
                 successHash: successHash,
@@ -55,34 +64,20 @@ export async function runBtcEthSwapLitAction({
             },
         });
         return response;
-    // } catch (e) {
-    //     throw new Error(`Error running btc eth swap lit action: ${e}`);
-    // }
 }
 
 async function prepareBtcSwapTransactions(
     btcParams,
-    ethParams,
-    code,
+    evmParams,
     pkpPublicKey,
     btcFeeRate
 ) {
-    // try {
-        // const checksum = await getIPFSHash(
-        //     await generateBtcEthSwapLitActionCode(btcParams, ethParams)
-        // );
-        // const codeChecksum = await getIPFSHash(code);
-        // if (checksum !== codeChecksum) {
-        //     throw new Error(
-        //         "IPFS CID does not match generated Lit Action code. You may have incorrect parameters."
-        //     );
-        // }
         const btcAddress = generateBtcAddress(pkpPublicKey);
         const utxo = await getUtxoByAddress(btcAddress);
 
         const btcSuccessTransaction = prepareTransactionForSignature({
             utxo,
-            recipientAddress: ethParams.btcAddress,
+            recipientAddress: evmParams.btcAddress,
             fee: btcFeeRate,
         });
 
@@ -117,9 +112,6 @@ async function prepareBtcSwapTransactions(
             clawbackHash,
             utxo,
         };
-    // } catch (err) {
-    //     throw new Error(`Error in prepareBtcSwapTransactions: ${err}`);
-    // }
 }
 
 function prepareTransactionForSignature({ utxo, recipientAddress, fee }) {
@@ -133,7 +125,22 @@ function prepareTransactionForSignature({ utxo, recipientAddress, fee }) {
         recipientAddress,
         bitcoin.networks.testnet
     );
-    transaction.addOutput(outputScript, utxo.value - VBYTES_PER_TX * fee);
+
+    // console.log("utxo.value", utxo.value)
+    // console.log("VBYTES_PER_TX", VBYTES_PER_TX)
+    // console.log("fee", fee)
+
+    const VBYTES_PER_TX = 192;
+
+    const utxoValue = BigInt(utxo.value);
+    const feeAmount = BigInt(VBYTES_PER_TX) * BigInt(fee);
+    const outputAmount = utxoValue - feeAmount;
+
+    if (outputAmount <= BigInt(0)) {
+        throw new Error(`Insufficient funds: output amount is non-positive (${outputAmount}).`);
+    }
+
+    transaction.addOutput(outputScript, outputAmount);
 
     return transaction;
 }
@@ -171,7 +178,7 @@ export function generateBtcAddress(ethPublicKey) {
     const compressedPubKeyHex = compressPublicKey(ethPublicKey);
     const compressedPubKey = Buffer.from(compressedPubKeyHex, 'hex');
 
-    const { address } = bitcoin.payments.p2pkh({
+    const { address } = bitcoin.payments.p2wpkh({
         pubkey: compressedPubKey,
         network: bitcoin.networks.testnet,
     });
@@ -181,7 +188,6 @@ export function generateBtcAddress(ethPublicKey) {
 }
 
 async function getUtxoByAddress(address) {
-    // try {
         const endpoint = `https://blockstream.info/${"testnet/"}api/address/${address}/utxo`;
         const result = await fetch(endpoint);
         if (!result.ok)
@@ -195,71 +201,35 @@ async function getUtxoByAddress(address) {
             throw new Error("No utxos found for address");
         }
         return firstUtxo;
-    // } catch (err) {
-    //     throw new Error("Error fetching utxos: " + err);
-    // }
 }
 
-export async function generateAuthSig(
-    signer,
-    chainId = 1,
-    uri = "https://localhost/login",
-    version = "1"
-) {
-    const siweMessage = new SiweMessage({
-        domain: "localhost",
-        address: await signer.getAddress(),
-        statement: "This is a key for Yacht",
-        uri,
-        version,
-        chainId,
+export function reverseBuffer(buffer) {
+    if (buffer.length < 1) return buffer;
+    let j = buffer.length - 1;
+    let tmp = 0;
+    for (let i = 0; i < buffer.length / 2; i++) {
+      tmp = buffer[i];
+      buffer[i] = buffer[j];
+      buffer[j] = tmp;
+      j--;
+    }
+    return buffer;
+  }
+
+  export async function getAuthSig(_signer) {
+    await litNodeClient.connect();
+
+    const toSign = await createSiweMessageWithRecaps({
+        uri: "http://localhost:3000",
+        expiration: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // 24 hours
+        walletAddress: await _signer.getAddress(),
+        nonce: await litNodeClient.getLatestBlockhash(),
+        litNodeClient,
     });
-    const messageToSign = siweMessage.prepareMessage();
-    const sig = await signer.signMessage(messageToSign);
-    return {
-        sig,
-        derivedVia: "web3.eth.personal.sign",
-        signedMessage: messageToSign,
-        address: await signer.getAddress(),
-    };
+
+    const authSig = await generateAuthSig({
+        signer: _signer,
+        toSign,
+    });
+    return authSig;
 }
-
-// dead function----------------------------
-
-
-// import * as ecc from 'tiny-secp256k1';
-
-// function generateBtcAddress(pkpPublicKey) {
-//     console.log("ethKey: ", pkpPublicKey);
-//     let compressedPoint;
-//     if (pkpPublicKey.length === 130) {
-//         compressedPoint = ecc.pointCompress(
-//             Buffer.from(pkpPublicKey, "hex"),
-//             true
-//         );
-//     } else if (pkpPublicKey.length === 132) {
-//         if (pkpPublicKey.slice(0, 2) !== "0x") {
-//             throw new Error("Invalid Ethereum public key");
-//         }
-//         compressedPoint = ecc.pointCompress(
-//             Buffer.from(pkpPublicKey.slice(2), "hex"),
-//             true
-//         );
-//     } else if (pkpPublicKey.length === 66) {
-//         compressedPoint = Buffer.from(ethKey, "hex");
-//     } else if (pkpPublicKey.length === 68) {
-//         if (pkpPublicKey.slice(0, 2) !== "0x") {
-//             throw new Error("Invalid Ethereum public key");
-//         }
-//         compressedPoint = Buffer.from(pkpPublicKey.slice(2), "hex");
-//     } else {
-//         throw new Error("Invalid Ethereum public key");
-//     }
-
-//     const { address } = bitcoin.payments.p2pkh({
-//         pubkey: Buffer.from(compressedPoint),
-//         network: bitcoin.networks.testnet,
-//     });
-//     if (!address) throw new Error("Could not generate address");
-//     return address;
-// }

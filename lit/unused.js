@@ -124,8 +124,6 @@ async function broadcastBtcTransaction(transaction) {
     }
 }
 
-
-
 async function loadActionCode(variables, fileName) {
     const resolvedFilename = fileName || "BtcEthSwap.bundle.js";
     const __dirname = path.resolve();

@@ -7,6 +7,7 @@ import {
     AuthMethodType,
     AuthMethodScope,
     LIT_CHAINS,
+    LIT_RPC
 } from "@lit-protocol/constants";
 import { LitAbility } from "@lit-protocol/types";
 import {
@@ -28,30 +29,30 @@ const litNodeClient = new LitNodeClient({
 });
 
 let mintedPKP = {
-        tokenId:
-            "112659976102653126523906220316122545650355833723158215223027097658460908065367",
-        publicKey:
-            "0x049f880805eba31a67b2a7e2f3342cd2d1ee2afc87f97110fe255cb0f751b88bd59766acec20bd3bc7415c3d471ab65e8f1126fe9f2a1dae06498fd52f846f41f8",
-        ethAddress: "0x8884Af4F490fCa7Fa1ef0E467F1DB227b895024e",
-    },
-    action_ipfs = "QmVzE8WZpV9UnJMgHUwke9esoX4p2fF8du5f8K2MwbdF3w";
+    "tokenId": "50267061547167950076251745905688815855207457426883590434412286997216423551373",
+    "publicKey": "0x040f53704c6cfad6d98b9fc5142a2babebaeb3a216133d1b084d6b8ba9bc12ac2438cdfe70fcfa8b63b2b6be0f563391e02c6fa701567541b8937de768db8bb5f0",
+    "ethAddress": "0x8b29813fE32a3BE18db2ac9a37D5CF0Edc8c1e56"
+},
+    action_ipfs = "QmPFHtTQtqQURAUGEhcwVrZQZHoLdwGAZD6R4AujhgLzkq";
 
 // swap params ------------------------------
 
+// counterPartyAddress is _to address
+
 const btcParams = {
     counterPartyAddress:
-        "tb1pdj2gvzymxtmcrs5ypm3pya8vc3h4fkk2g9kmav0j6skgruez88rs9f4zya",
-    network: "testnet",
-    value: 8000,
+    "tb1pj6lxcqsx043c65ucrfx2ksu4e9rrz5mguw7awwqlyukx4yhcv6asaty8at",
     ethAddress: "0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b",
+    network: "testnet",
+    value: 800,
 };
 
 const evmParams = {
-    counterPartyAddress: "0x9A6687E110186Abedf287085Da1f9bdD4d90D858",
-    chain: "ethereum",
-    amount: "1",
+    counterPartyAddress: "0x6428B9170f12EaC6aBA3835775D2bf27e2D6EAd4",
     btcAddress:
         "tb1pg3vxcftwr5af70k34z0ae7g7xevzmtzccdfew4n4f4hf3al0xkvs98y7k9",
+    chain: "ethereum",
+    amount: "0.01",
 };
 
 // main functions ----------------------------
@@ -95,11 +96,6 @@ export async function mintGrantBurnPKP(_action_ipfs, _mintedPKP) {
             true,
             {
                 value: pkpMintCost,
-                // maxFeePerGas: ethers.BigNumber.from("3800000000"),
-                // gasLimit: "2100000",
-                // maxFeePerGas: "10000000000", // in wei
-                // maxPriorityFeePerGas: "400000000", // in wei
-                // gasLimit: "21000"
             }
         );
 
@@ -134,31 +130,34 @@ export async function runLitAction(_action_ipfs, _mintedPKP) {
         chainId: LIT_CHAINS[evmParams.chain].chainId,
         nonce: await chainProvider.getTransactionCount(mintedPKP.ethAddress),
     };
+    const btcFeeRate = 1;
 
     const originTime = Date.now();
-
-    const btcFeeRate = 10;
-    const isEthClawback = false;
+    const signer = await getWalletEVM();
 
     const res = await runBtcEthSwapLitAction({
         pkpPublicKey: mintedPKP.publicKey,
-        action_ipfs,
+        ipfsId: action_ipfs,
         sessionSig,
-        evmGasConfig,
-        btcFeeRate,
+        signer,
         evmParams,
         btcParams,
-        isEthClawback,
+        evmGasConfig,
+        btcFeeRate,
         originTime,
     });
     console.log(res);
 }
 
-// helper functions ----------------------------
+async function broadcastBtcTransaction() {}
+
+async function broadcastEVMTransaction() {} 
+
+// additional functions ----------------------------
 
 async function getWalletEVM() {
     const provider = new ethers.providers.JsonRpcProvider(
-        `https://yellowstone-rpc.litprotocol.com/`
+        LIT_RPC.CHRONICLE_YELLOWSTONE
     );
     const wallet = new ethers.Wallet(
         process.env.NEXT_PUBLIC_PRIVATE_KEY,
@@ -280,6 +279,7 @@ export async function sessionSigEOA() {
 // btc address ----------------------------
 
 function compressPublicKey(pubKeyHex) {
+    // console.log("pubKeyHex", pubKeyHex)
     if (pubKeyHex.startsWith('0x') || pubKeyHex.startsWith('0X')) {
         pubKeyHex = pubKeyHex.slice(2);
     }
@@ -311,10 +311,12 @@ export function generateBtcAddress(ethPublicKey) {
     const compressedPubKeyHex = compressPublicKey(ethPublicKey);
     const compressedPubKey = Buffer.from(compressedPubKeyHex, 'hex');
 
-    const { address } = bitcoin.payments.p2pkh({
+    const { address } = bitcoin.payments.p2wpkh({
         pubkey: compressedPubKey,
         network: bitcoin.networks.testnet,
     });
+
+    console.log("btc address for pkp: ", address)
 
     if (!address) throw new Error("Could not generate address");
     return address;

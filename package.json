@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@bitcoin-js/tiny-secp256k1-asmjs": "^2.2.3",
     "@lit-protocol/auth-helpers": "^6.2.2",
     "@lit-protocol/contracts-sdk": "^6.2.2",
     "@lit-protocol/lit-node-client": "^6.4.10",

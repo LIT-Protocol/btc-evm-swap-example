@@ -3,10 +3,10 @@ import { ethers } from 'ethers';
 // raw lit action ----------------------------
 
 const rawLitAction = `
-const btcSwapParams = "{{btcSwapParams}}";
-const evmConditions = "{{evmConditions}}";
-const evmTransaction = "{{evmTransaction}}";
-const evmClawbackTransaction = "{{evmClawbackTransaction}}";
+const btcSwapParams = {{btcSwapParams}};
+const evmConditions = {{evmConditions}};
+const evmTransaction = {{evmTransaction}};
+const evmClawbackTransaction = {{evmClawbackTransaction}};
 evmTransaction.from = evmClawbackTransaction.from = pkpAddress;
 evmConditions.parameters = [pkpAddress];
 const hashTransaction = (tx) => {
