@@ -1,7 +1,7 @@
-const btcSwapParams = {"counterPartyAddress":"tb1pdj2gvzymxtmcrs5ypm3pya8vc3h4fkk2g9kmav0j6skgruez88rs9f4zya","ethAddress":"0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b","network":"testnet","value":8000};
-const evmConditions = {"contractAddress":"","standardContractType":"","chain":"ethereum","method":"eth_getBalance","parameters":["address"],"returnValueTest":{"comparator":">=","value":"1000000000000000000"}};
-const evmTransaction = {"to":"0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"1000000000000000000","type":2};
-const evmClawbackTransaction = {"to":"0x9A6687E110186Abedf287085Da1f9bdD4d90D858","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"1000000000000000000","type":2};
+const btcSwapParams = {"counterPartyAddress":"tb1pj6lxcqsx043c65ucrfx2ksu4e9rrz5mguw7awwqlyukx4yhcv6asaty8at","ethAddress":"0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b","network":"testnet","value":1000};
+const evmConditions = {"contractAddress":"","standardContractType":"","chain":"yellowstone","method":"eth_getBalance","parameters":["address"],"returnValueTest":{"comparator":">=","value":"10000000000000000"}};
+const evmTransaction = {"to":"0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
+const evmClawbackTransaction = {"to":"0x6428B9170f12EaC6aBA3835775D2bf27e2D6EAd4","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
 evmTransaction.from = evmClawbackTransaction.from = pkpAddress;
 evmConditions.parameters = [pkpAddress];
 const hashTransaction = (tx) => {
@@ -21,7 +21,7 @@ function checkHasThreeDaysPassed(previousTime) {
 async function validateUtxo() {
     try {
         const utxoResponse = await fetch(
-            `https://ac26-72-80-171-211.ngrok-free.app/utxos?address=${pkpBtcAddress}`
+            `https://blockstream.info/testnet/api/address/${pkpBtcAddress}/utxo`
         );
         const fetchUtxo = await utxoResponse.json();
         if (fetchUtxo.length === 0) {
@@ -46,7 +46,7 @@ async function validateUtxo() {
 async function didSendBtc(address) {
     try {
         const response = await fetch(
-            `https://ac26-72-80-171-211.ngrok-free.app/txs?address=${pkpBtcAddress}`
+            `https://blockstream.info/testnet/api/address/${pkpBtcAddress}/txs`
         );
         const transactions = await response.json();
         if (transactions.length === 0) {
@@ -158,7 +158,6 @@ async function go() {
 }
 
 go();
-
 
 
   // pass in ETH swap condition as const

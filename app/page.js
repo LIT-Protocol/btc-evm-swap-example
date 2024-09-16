@@ -4,6 +4,9 @@ import {
     createLitAction,
     mintGrantBurnPKP,
     generateBtcAddress,
+    depositOnBitcoin,
+    depositOnEVM,
+    getFundsStatusPKP,
     runLitAction,
 } from "../lit/utils.js";
 
@@ -23,7 +26,7 @@ export default function Home() {
     }
 
     async function generateBtcAddressCall() {
-        const btcAddress = await generateBtcAddress();
+        const btcAddress = generateBtcAddress(pkp.publicKey);
         setBtcA(btcAddress);
     }
 
@@ -37,9 +40,14 @@ export default function Home() {
             <p className="mb-[1.5rem]">BTC Address, {btcA}</p>
             <button onClick={createLitActionCall}>Generate Lit Action</button>
             <button onClick={mintGrantBurnPKPCall}>Mint Grant Burn PKP</button>
-            <button onClick={generateBtcAddressCall}>Generate BTC Address</button>
-            <button onClick={() => runLitAction(ipfsId, pkp)}>
+            <button onClick={depositOnBitcoin}>Deposit on BTC to PKP</button>
+            <button onClick={depositOnEVM}>Deposit on EVM to PKP</button>
+            <button className="mb-[1.5rem]" onClick={() => runLitAction(ipfsId, pkp)}>
                 Run Lit Action
+            </button>
+            <button onClick={generateBtcAddressCall}>Get BTC Address for PKP</button>
+            <button onClick={() => getFundsStatusPKP(ipfsId, pkp)}>
+                Funds Status on PKP
             </button>
         </div>
     );

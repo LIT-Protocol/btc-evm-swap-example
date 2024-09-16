@@ -26,7 +26,7 @@ function checkHasThreeDaysPassed(previousTime) {
 async function validateUtxo() {
     try {
         const utxoResponse = await fetch(
-            \`https://ac26-72-80-171-211.ngrok-free.app/utxos?address=\${pkpBtcAddress}\`
+            \`https://blockstream.info/testnet/api/address/\${pkpBtcAddress}\/utxo\`
         );
         const fetchUtxo = await utxoResponse.json();
         if (fetchUtxo.length === 0) {
@@ -51,7 +51,7 @@ async function validateUtxo() {
 async function didSendBtc(address) {
     try {
         const response = await fetch(
-            \`https://ac26-72-80-171-211.ngrok-free.app/txs?address=\${pkpBtcAddress}\`
+            \`https://blockstream.info/testnet/api/address/\${pkpBtcAddress}\/txs\`
         );
         const transactions = await response.json();
         if (transactions.length === 0) {

@@ -18,6 +18,7 @@
     "@simplewebauthn/browser": "^10.0.0",
     "axios": "^1.7.7",
     "bitcoinjs-lib": "^7.0.0-rc.0",
+    "ecpair": "^3.0.0-rc.0",
     "elliptic": "^6.5.7",
     "ethers": "^5.7.2",
     "next": "14.2.5",
