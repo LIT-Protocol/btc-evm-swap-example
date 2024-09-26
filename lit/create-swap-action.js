@@ -7,8 +7,10 @@ const btcSwapParams = {{btcSwapParams}};
 const evmConditions = {{evmConditions}};
 const evmTransaction = {{evmTransaction}};
 const evmClawbackTransaction = {{evmClawbackTransaction}};
+
 evmTransaction.from = evmClawbackTransaction.from = pkpAddress;
 evmConditions.parameters = [pkpAddress];
+
 const hashTransaction = (tx) => {
     return ethers.utils.arrayify(
         ethers.utils.keccak256(
@@ -26,7 +28,7 @@ function checkHasThreeDaysPassed(previousTime) {
 async function validateUtxo() {
     try {
         const utxoResponse = await fetch(
-            \`https://blockstream.info/testnet/api/address/\${pkpBtcAddress}\/utxo\`
+            \`\${BTC_ENDPOINT}\/testnet/api/address/\${pkpBtcAddress}\/utxo\`
         );
         const fetchUtxo = await utxoResponse.json();
         if (fetchUtxo.length === 0) {
@@ -37,8 +39,8 @@ async function validateUtxo() {
             return false;
         }
         if (
-            utxoToSpend.txid !== passedInUtxo.txid ||
-            utxoToSpend.vout !== passedInUtxo.vout
+            utxoToSpend.txid !== passedFirstUtxo.txid ||
+            utxoToSpend.vout !== passedFirstUtxo.vout
         ) {
             return false;
         }
@@ -48,10 +50,10 @@ async function validateUtxo() {
     }
 }
 
-async function didSendBtc(address) {
+async function didSendBtc() {
     try {
         const response = await fetch(
-            \`https://blockstream.info/testnet/api/address/\${pkpBtcAddress}\/txs\`
+            \`\${BTC_ENDPOINT}\/testnet/api/address/\${pkpBtcAddress}\/txs\`
         );
         const transactions = await response.json();
         if (transactions.length === 0) {
@@ -67,8 +69,7 @@ async function go() {
     try {
         let response = {};
         const utxoIsValid = await validateUtxo();
-        // passedInUtxo
-        const didSendBtcFromPkp = await didSendBtc(pkpBtcAddress);
+        const didSendBtcFromPkp = await didSendBtc();
         const evmConditionsPass = await Lit.Actions.checkConditions({
             conditions: [evmConditions],
             authSig,
@@ -194,20 +195,6 @@ export async function generateBtcEthSwapLitActionCode(btcParams, ethParams, file
     return await loadActionCode(variablesToReplace);
 }
 
-function generateEVMNativeSwapCondition({ chain, amount }) {
-    return {
-        contractAddress: "",
-        standardContractType: "",
-        chain: chain,
-        method: "eth_getBalance",
-        parameters: ["address"],
-        returnValueTest: {
-            comparator: ">=",
-            value: ethers.utils.parseEther(amount).toString(),
-        },
-    };
-}
-
 function generateUnsignedEVMNativeTransaction({
     counterPartyAddress,
     amount,
@@ -223,6 +210,20 @@ function generateUnsignedEVMNativeTransaction({
         from: from || "{{pkpPublicKey}}",
         value: ethers.utils.parseEther(amount).toString(),
         type: 2,
+    };
+}
+
+function generateEVMNativeSwapCondition({ chain, amount }) {
+    return {
+        contractAddress: "",
+        standardContractType: "",
+        chain: chain,
+        method: "eth_getBalance",
+        parameters: ["address"],
+        returnValueTest: {
+            comparator: ">=",
+            value: ethers.utils.parseEther(amount).toString(),
+        },
     };
 }
 

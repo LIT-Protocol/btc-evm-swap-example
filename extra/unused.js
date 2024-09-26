@@ -26,6 +26,35 @@ async function signBitcoinWithLitAction(hashForSig, pkpPublicKey) {
     return sig1;
 }
 
+
+async function broadcast() {
+    const compressedPoint = ecc.pointCompress(
+        Buffer.from(pkpPublicKey.replace("0x", ""), "hex"),
+        true
+    );
+    const signature = Buffer.from(litSignature.r + litSignature.s, "hex");
+
+    const validSignature = validator(
+        Buffer.from(compressedPoint),
+        hashForSig,
+        signature
+    );
+    if (!validSignature) throw new Error("Invalid signature");
+
+    const compiledSignature = bitcoin.script.compile([
+        bitcoin.script.signature.encode(
+            signature,
+            bitcoin.Transaction.SIGHASH_ALL
+        ),
+        Buffer.from(compressedPoint.buffer),
+    ]);
+
+    const transaction = bitcoin.Transaction.fromHex(transactionString);
+    transaction.setInputScript(0, compiledSignature);
+    return transaction.toHex();
+
+}
+
 async function signFirstBtcUtxo({ pkpPublicKey, fee, recipientAddress }) {
     const compressedPoint = ecc.pointCompress(
         Buffer.from(pkpPublicKey.replace("0x", ""), "hex"),
@@ -106,6 +135,13 @@ function signBtcTxWithLitSignature(
     transaction.setInputScript(0, compiledSignature);
     return transaction.toHex();
 }
+
+// const ECPair = ECPairFactory(ecc);
+// export const validator = (
+//     pubkey: Buffer,
+//     msghash: Buffer,
+//     signature: Buffer,
+//   ): boolean => ECPair.fromPublicKey(pubkey).verify(msghash, signature);
 
 async function broadcastBtcTransaction(transaction) {
     try {

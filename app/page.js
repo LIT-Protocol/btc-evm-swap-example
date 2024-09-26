@@ -10,6 +10,8 @@ import {
     runLitAction,
 } from "../lit/utils.js";
 
+// import { createAndSignTx2 } from "../extra/test.js";
+
 export default function Home() {
     const [ipfsId, setIpfsId] = useState(null);
     const [pkp, setPkp] = useState(null);
@@ -26,7 +28,7 @@ export default function Home() {
     }
 
     async function generateBtcAddressCall() {
-        const btcAddress = generateBtcAddress(pkp.publicKey);
+        const btcAddress = generateBtcAddress(pkp?.publicKey);
         setBtcA(btcAddress);
     }
 
@@ -45,6 +47,7 @@ export default function Home() {
             <button className="mb-[1.5rem]" onClick={() => runLitAction(ipfsId, pkp)}>
                 Run Lit Action
             </button>
+            {/* <button onClick={broadcastBtcTransaction}>test tx</button> */}
             <button onClick={generateBtcAddressCall}>Get BTC Address for PKP</button>
             <button onClick={() => getFundsStatusPKP(ipfsId, pkp)}>
                 Funds Status on PKP
