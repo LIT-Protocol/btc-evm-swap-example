@@ -193,3 +193,9 @@ function replaceCodeVariables(content, variables) {
     }
     return result;
 }
+
+export const validator = (
+    pubkey,
+    msghash,
+    signature,
+  ) => ECPair.fromPublicKey(pubkey).verify(msghash, signature);

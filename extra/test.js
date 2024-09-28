@@ -1,195 +1,124 @@
-import ECPair from "ecpair";
+import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
 import * as bitcoin from "bitcoinjs-lib";
-import mempool from "@mempool/mempool.js";
+import pkg from "elliptic";
+const { ec: EC } = pkg;
 import { ethers } from "ethers";
-import { ec as EC } from "elliptic";
-import axios from "axios";
-
+import { ECPairFactory } from "ecpair";
+const ECPair = ECPairFactory(ecc);
 const ec = new EC("secp256k1");
+bitcoin.initEccLib(ecc);
 
-let mintedPKP = {
-        tokenId:
-            "50202233540837129411155367829024341022546334492979792100268790842102423049011",
-        publicKey:
-            "0x040b670b840bdce35bd1d14e43757d443fefea38560a48f7bf768b94f1626cb9c3d211429983c6eeee626ea90db846bb76dbf378ccd3f7d0a6826ee25292aab40d",
-        ethAddress: "0x6071623DFa2FaEf23E7b93f8AC535cE608326f75",
-    },
-    action_ipfs = "QmZDSFML4DmgiAbvab7neKbg57em3PZbG5jUZ2M2ThkMA2";
-const Btc_Endpoint = "https://mempool.space";
+let privateKey =
+    "d653763be1854048e1a70dd9fc94d47c09c790fb1530a01ee65257b0b698c352";
 
-// ----------------------------
-// ----------------------------
-// ----------------------------
+// sendTxAllUTXO()
+sendTxSelectedUTXO();
 
-export async function createAndSignTx1() {
-    console.log("dropping some bitcoin..");
-    let privateKey = process.env.NEXT_PUBLIC_PRIVATE_KEY;
-    const amountInSats = 1000;
+// Function to generate P2PKH address for testnet
+function generateBtcAddressP2PKH(publicKey) {
+    if (publicKey.startsWith("0x")) {
+        publicKey = publicKey.slice(2);
+    }
+    const pubKeyBuffer = Buffer.from(publicKey, "hex");
 
+    const payment = bitcoin.payments.p2pkh({
+        pubkey: pubKeyBuffer,
+        network: bitcoin.networks.testnet,
+    });
+    return payment.address;
+}
+
+// Function to compute public key from private key using ethers.js
+function computePublicKey(privateKey) {
     if (!privateKey.startsWith("0x")) {
         privateKey = "0x" + privateKey;
     }
-    const publicKey = ethers.utils.computePublicKey(privateKey);
+    return ethers.utils.computePublicKey(privateKey);
+}
 
-    const btcFrom = generateBtcAddress(publicKey);
-    const btcTo = generateBtcAddress(mintedPKP.publicKey);
+// Sending transaction with P2PKH UTXO
+export async function sendTxSelectedUTXO() {
+    console.log("starting...");
 
-    console.log("from", btcFrom, "to", btcTo);
+    const publicKeySender = computePublicKey(privateKey);
+    const senderAddress = generateBtcAddressP2PKH(publicKeySender);
+    const recipientAddress = "mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq"
+    // const senderAddress = generateBtcAddressP2PKH(pkp.publicKey);
+    // const recipientAddress = "mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq";
+    // const Btc_Endpoint = "https://mempool.space";
+    const Btc_Endpoint = "https://blockstream.info";
+    const amount = BigInt(600);
+    const fee = BigInt(300);
+    const network = bitcoin.networks.testnet;
+    
+    const endpoint = `${Btc_Endpoint}/testnet/api/address/${senderAddress}/utxo`;
+    const result = await fetch(endpoint);
+    const utxos = await result.json();
+    const selectedUtxo = utxos[0];
 
-    const utxoResponse = await axios.get(
-        `${Btc_Endpoint}/testnet/api/address/${btcFrom}/utxo`
-    );
-    const fetchUtxo = await utxoResponse.data;
-    const utxoToSpend = fetchUtxo[0];
-    console.log("utxoToSpend ", utxoToSpend);
+    const rawTxEndpoint = `${Btc_Endpoint}/testnet/api/tx/${selectedUtxo.txid}/hex`;
+    const rawTxResult = await fetch(rawTxEndpoint);
+    const rawTxHex = await rawTxResult.text();
+    
+    console.log("utxos", utxos);
+    console.log("selectedUtxo", selectedUtxo);
+    console.log("pkp btc address", senderAddress);
+    console.log("recipient btc address", recipientAddress);
+    console.log("rawTxHex", rawTxHex);
 
-    const psbt = new bitcoin.Psbt({ network: bitcoin.networks.testnet });
+    if (BigInt(selectedUtxo.value) - amount - fee < 0) {
+        throw new Error("Insufficient funds");
+    }
 
+    const changeAmount = BigInt(selectedUtxo.value) - amount - fee;
+
+    if (changeAmount - fee < 0) {
+        throw new Error("Insufficient change funds");
+    }
+
+    const psbt = new bitcoin.Psbt({ network });
+    // Adding input with nonWitnessUtxo (legacy transaction input)
     psbt.addInput({
-        hash: utxoToSpend.txid,
-        index: utxoToSpend.vout,
-        witnessUtxo: {
-            script: Buffer.from(
-                bitcoin.address.toOutputScript(
-                    btcFrom,
-                    bitcoin.networks.testnet
-                )
-            ),
-            value: BigInt(utxoToSpend.value),
-        },
+        hash: selectedUtxo.txid,
+        index: selectedUtxo.vout,
+        nonWitnessUtxo: Buffer.from(rawTxHex, 'hex'), // Raw transaction is needed for nonWitnessUtxo
+    });
+
+    // Adding output
+    psbt.addOutput({
+        address: recipientAddress,
+        value: amount,
     });
 
     psbt.addOutput({
-        address: btcTo,
-        // script: Buffer.from(
-        //     bitcoin.address.toOutputScript(btcTo, bitcoin.networks.testnet)
-        // ),
-        value: amountInSats,
+        address: senderAddress,  // Sending the change back to the sender
+        value: changeAmount,  // The remaining amount after subtracting the amount and fee
+    });
+    
+
+    const txHex = psbt.data.globalMap.unsignedTx.tx.toHex();
+    console.log("unsigned tx", txHex);
+
+    // Signing the input
+    const keyPair = ECPair.fromPrivateKey(Buffer.from(privateKey, "hex"), {
+        network,
     });
 
-    console.log(psbt);
-    const ecpair = ECPair.fromPrivateKey(
-        Buffer.from(privateKey.slice(2), "hex")
-    );
+    psbt.signAllInputs(keyPair);
 
-    psbt.signInput(0, ecpair);
+    console.log("PSBT before finalization:", psbt.toBase64());
     psbt.finalizeAllInputs();
 
-    const txHex = psbt.extractTransaction().toHex();
-    console.log("Signed Raw Transaction Hex:", txHex);
+    const signedTxHex = psbt.extractTransaction().toHex();
+    console.log("Signed Transaction Hex:", signedTxHex);
 
-    // const mempoolJS = mempool();
-    // const { bitcoin: bitcoinMempool } = mempoolJS({ hostname: 'mempool.space', network: 'testnet' });
-
-    // const result = await bitcoinMempool.tx.broadcastTx({ txHex });
-    // console.log('Transaction broadcast result:', result);
-}
-
-export async function createAndSignTx2() {
-    console.log("dropping some bitcoin..");
-    let privateKey = process.env.NEXT_PUBLIC_PRIVATE_KEY;
-    const amountInSats = 1000;
-
-    if (!privateKey.startsWith("0x")) {
-        privateKey = "0x" + privateKey;
-    }
-    const publicKey = ethers.utils.computePublicKey(privateKey);
-
-    const btcFrom = generateBtcAddress(publicKey);
-    const btcTo = generateBtcAddress(mintedPKP.publicKey);
-
-    console.log("from", btcFrom, "to", btcTo);
-
-    const utxoResponse = await axios.get(
-        `${Btc_Endpoint}/testnet/api/address/${btcFrom}/utxo`
-    );
-    console.log("my", btcFrom);
-
-    const fetchUtxo = await utxoResponse.data;
-    const utxoToSpend = fetchUtxo[0];
-    console.log("utxoToSpend ", utxoToSpend);
-
-    
-    // psbt.addInput({
-    //     hash: utxoToSpend.txid,
-    //     index: utxoToSpend.vout,
-    //     witnessUtxo: {
-    //         script: Buffer.from(
-    //             bitcoin.address.toOutputScript(
-    //                 btcFrom,
-    //                 bitcoin.networks.testnet
-    //             )
-    //         ),
-    //         value: BigInt(utxoToSpend.value),
+    // Broadcasting the transaction (uncomment below lines if needed)
+    // const broadcastResponse = await fetch(`${Btc_Endpoint}/testnet/api/tx`, {
+    //     method: "POST",
+    //     headers: {
+    //         "Content-Type": "text/plain",
     //     },
+    //     body: signedTxHex,
     // });
-    
-    const transaction = new bitcoin.Transaction();
-
-    const txidBuffer = Buffer.from(utxoToSpend.txid, "hex").reverse();
-    transaction.addInput(txidBuffer, utxoToSpend.value);
-
-    const scriptPubKey = bitcoin.address.toOutputScript(
-        btcTo,
-        bitcoin.networks.testnet
-    );
-    const amountInSatsBigInt = BigInt(amountInSats);
-    transaction.addOutput(scriptPubKey, amountInSatsBigInt);
-
-    console.log("transaction", transaction);
-    console.log(transaction.toHex())
-    // const mempoolJS = mempool();
-    // const { bitcoin: bitcoinMempool } = mempoolJS({ hostname: 'mempool.space', network: 'testnet' });
-
-    // const result = await bitcoinMempool.tx.broadcastTx({ txHex });
-    // console.log('Transaction broadcast result:', result);
-}
-
-// ----------------------------
-// ----------------------------
-// ----------------------------
-
-export function generateBtcAddress(_evmPublicKey) {
-    let pubicKey;
-    _evmPublicKey
-        ? (pubicKey = _evmPublicKey)
-        : (pubicKey = mintedPKP.publicKey);
-
-    const compressedPubKeyHex = compressPublicKey(pubicKey);
-    const compressedPubKey = Buffer.from(compressedPubKeyHex, "hex");
-
-    const { address } = bitcoin.payments.p2wpkh({
-        pubkey: compressedPubKey,
-        network: bitcoin.networks.testnet,
-    });
-
-    if (!address) throw new Error("Could not generate address");
-    return address;
-}
-
-function compressPublicKey(pubKeyHex) {
-    if (pubKeyHex.startsWith("0x") || pubKeyHex.startsWith("0X")) {
-        pubKeyHex = pubKeyHex.slice(2);
-    }
-
-    if (pubKeyHex.length === 130) {
-        if (!pubKeyHex.startsWith("04")) {
-            throw new Error("Invalid Ethereum public key format");
-        }
-    } else if (pubKeyHex.length === 128) {
-        pubKeyHex = "04" + pubKeyHex;
-    } else if (pubKeyHex.length === 66) {
-        if (!pubKeyHex.startsWith("02") && !pubKeyHex.startsWith("03")) {
-            throw new Error("Invalid compressed public key format");
-        }
-        return pubKeyHex;
-    } else if (pubKeyHex.length === 64) {
-        throw new Error("Invalid compressed public key length");
-    } else {
-        throw new Error("Invalid public key length");
-    }
-
-    const keyPair = ec.keyFromPublic(pubKeyHex, "hex");
-    const compressedPubKeyHex = keyPair.getPublic(true, "hex");
-    return compressedPubKeyHex;
+    // console.log("Broadcast Response", broadcastResponse);
 }

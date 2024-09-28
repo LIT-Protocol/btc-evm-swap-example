@@ -22,6 +22,9 @@ import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
 import * as bitcoin from "bitcoinjs-lib";
 import axios from "axios";
 import ECPair from "ecpair";
+import BN from "bn.js";
+import * as bip66 from "bip66";
+import * as crypto from "crypto";
 
 const ec = new EC("secp256k1");
 bitcoin.initEccLib(ecc);
@@ -118,9 +121,97 @@ export async function mintGrantBurnPKP(_action_ipfs, _mintedPKP) {
     return pkpInfo;
 }
 
+export function generateBtcAddressP2PKH(_mintedPKP) {
+    _mintedPKP ? (mintedPKP = _mintedPKP) : null;
+    let publicKey = _mintedPKP.publicKey;
+    if (publicKey.startsWith("0x")) {
+        publicKey = publicKey.slice(2);
+    }
+    const pubKeyBuffer = Buffer.from(publicKey, "hex");
+
+    const payment = bitcoin.payments.p2pkh({
+        pubkey: pubKeyBuffer,
+        network: bitcoin.networks.testnet,
+    });
+    return payment.address;
+}
+
+
+async function prepareBtcTransaction({
+    recipientAddress,
+    senderAddress,
+    fee,
+}) {
+    const endpoint = `${Btc_Endpoint}/testnet/api/address/${senderAddress}/utxo`;
+    const result = await fetch(endpoint);
+    const utxos = await result.json();
+    const selectedUtxo = utxos[0];
+
+    const txEndpoint = `${Btc_Endpoint}/testnet/api/tx/${selectedUtxo.txid}`;
+    const txResult = await fetch(txEndpoint);
+    const txData = await txResult.json();
+    const output = txData.vout[selectedUtxo.vout];
+    const scriptPubKey = output.scriptpubkey;
+
+    const amount = BigInt(selectedUtxo.value) - fee;
+
+
+    if (amount < 0) {
+        throw new Error("Insufficient funds");
+    }
+
+    const tx = new bitcoin.Transaction();
+    tx.version = 2;
+
+    tx.addInput(Buffer.from(selectedUtxo.txid, "hex").reverse(), selectedUtxo.vout);
+    tx.addOutput(
+      bitcoin.address.toOutputScript(recipientAddress, network),
+      amount
+    );
+    const scriptPubKeyBuffer = Buffer.from(scriptPubKey, "hex");
+
+    const sigHash = tx.hashForSignature(
+      0,
+      bitcoin.script.compile(scriptPubKeyBuffer),
+      bitcoin.Transaction.SIGHASH_ALL
+    );
+
+    const txHex = tx.toHex();
+
+    return { transaction: txHex, transactionHash: sigHash };
+}
+
 export async function runLitAction(_action_ipfs, _mintedPKP) {
     _action_ipfs ? (action_ipfs = _action_ipfs) : null;
     _mintedPKP ? (mintedPKP = _mintedPKP) : null;
+    console.log("executing lit action..");
+
+    const pkpBtcAddress = generateBtcAddressP2PKH(mintedPKP);
+    const btcFeeRate = BigInt(300);
+
+    const {
+        transaction: btcSuccessTransactionHex,
+        transactionHash: successHash,
+    } = await prepareBtcTransaction({
+        utxo: firstUtxo,
+        recipientAddress: evmParams.btcAddress,
+        fee: btcFeeRate,
+        pkpBtcAddress,
+    });
+
+    console.log("btcSuccessTransaction", btcSuccessTransactionHex, successHash);
+
+    const {
+        transaction: btcClawbackTransactionHex,
+        transactionHash: clawbackHash,
+    } = await prepareBtcTransaction({
+        utxo: firstUtxo,
+        recipientAddress: btcParams.counterPartyAddress,
+        fee: btcFeeRate,
+        pkpBtcAddress,
+    });
+
+    console.log("btcClawbackTransactionHex", btcClawbackTransactionHex, clawbackHash);
 
     const sessionSig = await sessionSigEOA();
 
@@ -133,39 +224,9 @@ export async function runLitAction(_action_ipfs, _mintedPKP) {
         chainId: LIT_CHAINS[evmParams.chain].chainId,
         nonce: await chainProvider.getTransactionCount(mintedPKP.ethAddress),
     };
-    const btcFeeRate = 0;
 
     const originTime = Date.now();
     const signer = await getWalletEVM();
-
-    const pkpBtcAddress = generateBtcAddress(mintedPKP.publicKey);
-
-    const endpoint = `${Btc_Endpoint}/testnet/api/address/${pkpBtcAddress}/utxo`;
-    const result = await fetch(endpoint);
-    const utxos = await result.json();
-    const firstUtxo = utxos[0];
-    // console.log("utxos", utxos);
-
-    const { transaction: btcSuccessTransaction, transactionHash: successHash } =
-        await prepareBtcTransaction({
-            utxo: firstUtxo,
-            recipientAddress: evmParams.btcAddress,
-            fee: btcFeeRate,
-            pkpBtcAddress,
-        });
-
-    // console.log("btcSuccessTransaction", btcSuccessTransaction, successHash);
-
-    const {
-        transaction: btcClawbackTransaction,
-        transactionHash: clawbackHash,
-    } = await prepareBtcTransaction({
-        utxo: firstUtxo,
-        recipientAddress: btcParams.counterPartyAddress,
-        fee: btcFeeRate,
-        pkpBtcAddress,
-    });
-
     const authSig = await getAuthSig(signer);
 
     await litNodeClient.connect();
@@ -178,16 +239,16 @@ export async function runLitAction(_action_ipfs, _mintedPKP) {
             pkpAddress: ethers.utils.computeAddress(mintedPKP.publicKey),
             pkpBtcAddress,
             authSig: authSig,
-            // passedFirstUtxo: firstUtxo,
             originTime,
             BTC_ENDPOINT: Btc_Endpoint,
+            // passedFirstUtxo: firstUtxo,
             passedInUtxo: firstUtxo,
             ethGasConfig: evmGasConfig,
             btcFeeRate: btcFeeRate,
             successHash: successHash,
             clawbackHash: clawbackHash,
-            successTxHex: btcSuccessTransaction.toHex(),
-            clawbackTxHex: btcClawbackTransaction.toHex(),
+            successTxHex: btcSuccessTransactionHex,
+            clawbackTxHex: btcClawbackTransactionHex,
         },
     });
 
@@ -214,83 +275,19 @@ export async function broadcastBtcTransaction(results) {
     const btcSignature = results.signatures.btcSignature;
     const btcTransaction = results.response.response.btcTransaction;
 
-    let pubKeyHex = mintedPKP.publicKey.startsWith("0x")
-        ? mintedPKP.publicKey.slice(2)
-        : mintedPKP.publicKey;
+    // construct signed transaction object
 
-    const keyPair = ec.keyFromPublic(pubKeyHex, "hex");
-
-    const compressedPoint = Buffer.from(keyPair.getPublic(true, "hex"), "hex");
-
-    const encodedSignature = Buffer.from(
-        btcSignature.r + btcSignature.s,
-        "hex"
-    );
-
-    const compiledSignature = bitcoin.script.compile([
-        bitcoin.script.signature.encode(
-            encodedSignature,
-            bitcoin.Transaction.SIGHASH_ALL
-        ),
-        Buffer.from(compressedPoint.buffer),
-    ]);
-
-    const transaction = bitcoin.Transaction.fromHex(btcTransaction);
-    transaction.setInputScript(0, compiledSignature);
-
-    const response = await fetch("https://mempool.space/api/tx", {
+    const broadcastResponse = await fetch(`${Btc_Endpoint}/testnet/api/tx`, {
         method: "POST",
         headers: {
             "Content-Type": "text/plain",
         },
-        body: transaction.toHex(),
+        body: signedTxHex,
     });
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error broadcasting transaction: ${errorText}`);
-    }
-
-    const txid = await response.text();
-    console.log(`Transaction broadcasted successfully. TXID: ${txid}`);
+    const txid = await broadcastResponse.text();
+    console.log("Transaction broadcast successfully. TXID:", txid);
 }
-
-// export async function broadcastBtcTransaction(results) {
-//     console.log("Broadcasting on BTC...");
-
-//     const signatureHex = results.signatures.btcSignature; // Assuming this is a hex string
-//     const signature = Buffer.from(signatureHex, "hex");
-
-//     const btcTransaction = results.response.response.btcTransaction; // This should be psbtBase64
-//     const psbt = bitcoin.Psbt.fromBase64(btcTransaction, {
-//         network: bitcoin.networks.testnet,
-//     });
-
-//     psbt.updateInput(0, {
-//         tapKeySig: signature,
-//     });
-
-//     psbt.finalizeInput(0);
-
-//     const transaction = psbt.extractTransaction();
-//     const transactionHex = transaction.toHex();
-
-//     const response = await fetch("https://mempool.space/testnet/api/tx", {
-//         method: "POST",
-//         headers: {
-//             "Content-Type": "text/plain",
-//         },
-//         body: transactionHex,
-//     });
-
-//     if (!response.ok) {
-//         const errorText = await response.text();
-//         throw new Error(`Error broadcasting transaction: ${errorText}`);
-//     }
-
-//     const txid = await response.text();
-//     console.log(`Transaction broadcasted successfully. TXID: ${txid}`);
-// }
 
 async function broadcastEVMTransaction(results, chainProvider) {
     console.log("broadcasting on evm..");
@@ -313,108 +310,6 @@ async function broadcastEVMTransaction(results, chainProvider) {
 }
 
 // helper functions ----------------------------
-
-async function prepareBtcTransaction({
-    utxo,
-    recipientAddress,
-    fee,
-    pkpBtcAddress,
-}) {
-    const txEndpoint = `${Btc_Endpoint}/testnet/api/tx/${utxo.txid}`;
-    const txResult = await fetch(txEndpoint);
-    const txData = await txResult.json();
-    const output = txData.vout[utxo.vout];
-    const scriptPubKeyHex = output.scriptpubkey;
-
-    const utxoValue = BigInt(utxo.value);
-    const feeValue = BigInt(fee);
-    const transferAmount = utxoValue - feeValue;
-
-    const transaction = new bitcoin.Transaction();
-    transaction.version = 2;
-    transaction.addInput(Buffer.from(utxo.txid, "hex").reverse(), utxo.vout);
-
-    transaction.addOutput(
-        bitcoin.address.toOutputScript(
-            recipientAddress,
-            bitcoin.networks.testnet
-        ),
-        transferAmount
-    );
-
-    const scriptPubKeyBuffer = Buffer.from(scriptPubKeyHex, "hex");
-    const decompiled = bitcoin.script.decompile(scriptPubKeyBuffer);
-    const transactionHash = transaction.hashForSignature(
-        0,
-        bitcoin.script.compile(decompiled),
-        bitcoin.Transaction.SIGHASH_ALL
-    );
-
-    // const transactionHash = transaction.hashForSignature(
-    //     0,
-    //     bitcoin.address.toOutputScript(pkpBtcAddress, bitcoin.networks.testnet),
-    //     bitcoin.Transaction.SIGHASH_ALL
-    // );
-
-    // console.log(transaction, transactionHash)
-
-    return { transaction, transactionHash };
-}
-
-// async function prepareBtcTransaction({
-//     utxo,
-//     recipientAddress,
-//     fee,
-//     pkpBtcAddress,
-// }) {
-//     const psbt = new bitcoin.Psbt({ network: bitcoin.networks.testnet });
-
-//     const txEndpoint = `${Btc_Endpoint}/testnet/api/tx/${utxo.txid}`;
-//     const txResult = await fetch(txEndpoint);
-//     const txData = await txResult.json();
-//     const output = txData.vout[utxo.vout];
-//     const scriptPubKeyHex = output.scriptpubkey_hex;
-
-//     // Amounts must be in satoshis
-//     const utxoValue = BigInt(utxo.value); // Ensure utxo.amount is in satoshis
-//     const feeValue = BigInt(fee); // Fee in satoshis
-//     const transferAmount = utxoValue - feeValue;
-
-//     if (transferAmount <= 0n) {
-//         throw new Error(
-//             "Transfer amount must be greater than zero after deducting fee."
-//         );
-//     }
-
-//     psbt.addInput({
-//         hash: utxo.txid,
-//         index: utxo.vout,
-//         witnessUtxo: {
-//             script: Buffer.from(scriptPubKeyHex, 'hex'),
-//             value: Number(utxoValue), // PSBT expects a number
-//         },
-//         tapInternalKey: Buffer.from(pkpPublicKey, 'hex'), // Your public key in hex
-//     });
-
-//     psbt.addOutput({
-//         address: recipientAddress,
-//         value: Number(transferAmount),
-//     });
-
-//     const inputIndex = 0;
-//     const sighashType = bitcoin.Transaction.SIGHASH_DEFAULT;
-
-//     const transactionHash = psbt.__CACHE.__TX.hashForWitnessV1(
-//         inputIndex,
-//         psbt.__CACHE.__IN_PREVS.map((input) => input.witnessUtxo.script),
-//         psbt.__CACHE.__IN_PREVS.map((input) => input.witnessUtxo.value),
-//         sighashType
-//     );
-
-//     const psbtBase64 = psbt.toBase64();
-
-//     return { psbtBase64, transactionHash };
-// }
 
 export async function getAuthSig(_signer) {
     await litNodeClient.connect();
@@ -554,74 +449,50 @@ export async function sessionSigEOA() {
     return sessionSigs;
 }
 
-export function generateBtcAddress(_evmPublicKey) {
-    let pubicKey;
-    _evmPublicKey
-        ? (pubicKey = _evmPublicKey)
-        : (pubicKey = mintedPKP.publicKey);
-
-    const compressedPubKeyHex = compressPublicKey(pubicKey);
-    const compressedPubKey = Buffer.from(compressedPubKeyHex, "hex");
-
-    const { address } = bitcoin.payments.p2wpkh({
-        pubkey: compressedPubKey,
-        network: bitcoin.networks.testnet,
-    });
-
-    if (!address) throw new Error("Could not generate address");
-    return address;
-}
-
-function compressPublicKey(pubKeyHex) {
-    if (pubKeyHex.startsWith("0x") || pubKeyHex.startsWith("0X")) {
-        pubKeyHex = pubKeyHex.slice(2);
-    }
-
-    if (pubKeyHex.length === 130) {
-        if (!pubKeyHex.startsWith("04")) {
-            throw new Error("Invalid Ethereum public key format");
-        }
-    } else if (pubKeyHex.length === 128) {
-        pubKeyHex = "04" + pubKeyHex;
-    } else if (pubKeyHex.length === 66) {
-        if (!pubKeyHex.startsWith("02") && !pubKeyHex.startsWith("03")) {
-            throw new Error("Invalid compressed public key format");
-        }
-        return pubKeyHex;
-    } else if (pubKeyHex.length === 64) {
-        throw new Error("Invalid compressed public key length");
-    } else {
-        throw new Error("Invalid public key length");
-    }
-
-    const keyPair = ec.keyFromPublic(pubKeyHex, "hex");
-    const compressedPubKeyHex = keyPair.getPublic(true, "hex");
-    return compressedPubKeyHex;
-}
-
 // supporting functions ----------------------------
 
-export async function depositOnEVM() {}
-
-export async function depositOnBitcoin(_bitcoin) {}
-
-export async function getFundsStatusPKP(_action_ipfs, _mintedPKP) {
+export async function depositOnEVM() {
     _action_ipfs ? (action_ipfs = _action_ipfs) : null;
     _mintedPKP ? (mintedPKP = _mintedPKP) : null;
 
-    console.log("checking balances on pkp..");
-
-    const pkpBtcAddress = generateBtcAddress(mintedPKP.pubkey);
-    const utxoResponse = await axios.get(
-        `${Btc_Endpoint}/testnet/api/address/${pkpBtcAddress}/utxo`
+    console.log(
+        `deposit started from wallet A on chain A (${chainAParams.chain})..`
     );
+    let wallet = await getWallet();
 
-    const chainProvider = new ethers.providers.JsonRpcProvider(
-        LIT_RPC.CHRONICLE_YELLOWSTONE
+    const chainAProvider = new ethers.providers.JsonRpcProvider(
+        LIT_CHAINS[chainAParams.chain].rpcUrls[0]
     );
-    const balance = await chainProvider.getBalance(mintedPKP.ethAddress);
-    const balanceInTokens_EVM = ethers.utils.formatUnits(balance, 18);
+    wallet = wallet.connect(chainAProvider);
 
-    console.log("balance on btc: ", utxoResponse.data[0].value);
-    console.log("balance on evm: ", balanceInTokens_EVM);
+    // sometimes you may need to add gasLimit
+    const transactionObject = {
+        to: chainAParams.tokenAddress,
+        from: await wallet.getAddress(),
+        data: generateCallData(
+            mintedPKP.ethAddress,
+            ethers.utils
+                .parseUnits(chainAParams.amount, chainAParams.decimals)
+                .toString()
+        ),
+    };
+
+    const tx = await wallet.sendTransaction(transactionObject);
+    const receipt = await tx.wait();
+
+    console.log("token deposit executed: ", receipt);
+
+    console.log("depositing some funds for gas..");
+
+    // gas value differs for chains, check explorer for more info
+    const transactionObject2 = {
+        to: mintedPKP.ethAddress,
+        value: ethers.BigNumber.from("1000000000000000"),
+        gasPrice: await chainAProvider.getGasPrice(),
+    };
+
+    const tx2 = await wallet.sendTransaction(transactionObject2);
+    const receipt2 = await tx2.wait();
+
+    console.log("gas deposit executed: ", receipt2);
 }

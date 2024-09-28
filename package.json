@@ -17,9 +17,11 @@
     "@lit-protocol/types": "^6.2.2",
     "@simplewebauthn/browser": "^10.0.0",
     "axios": "^1.7.7",
+    "bip66": "^2.0.0",
     "bitcoinjs-lib": "^7.0.0-rc.0",
     "bitcore-lib": "^10.3.0",
-    "ecpair": "^3.0.0-rc.0",
+    "bn.js": "^5.2.1",
+    "ecpair": "^2.1.0",
     "elliptic": "^6.5.7",
     "ethers": "^5.7.2",
     "net": "^1.0.2",
@@ -30,7 +32,9 @@
     "secp256k1": "^5.0.0",
     "siwe": "^2.3.2",
     "tiny-secp256k1": "^2.2.3",
-    "tls": "^0.0.1"
+    "tls": "^0.0.1",
+    "uuid": "^10.0.0",
+    "viem": "^2.21.15"
   },
   "devDependencies": {
     "@types/elliptic": "^6.4.18",

@@ -4,6 +4,7 @@
         "ecpair",
         "psbt",
         "Sats",
+        "segwit",
         "txid",
         "vout"
     ]
