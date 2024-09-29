@@ -27,11 +27,6 @@ import * as bip66 from "bip66";
 const ec = new EC("secp256k1");
 bitcoin.initEccLib(ecc);
 
-const litNodeClient = new LitNodeClient({
-    litNetwork: LitNetwork.DatilDev,
-    debug: false,
-});
-
 // const Btc_Endpoint = "https://mempool.space";
 const Btc_Endpoint = "https://blockstream.info";
 
@@ -56,7 +51,7 @@ interface Pkp {
     tokenId: string;
 }
 
-// https://coinfaucet.eu/en/btc-testnet/ faucet
+// https://coinfaucet.eu/en/btc-testnet/ faucet that supports p2kh
 // A sends on btc to B, B sends on evm to A
 const swapObject: SwapObject = {
     btcA: "mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq",
@@ -77,6 +72,11 @@ let mintedPKP: Pkp,
 
 // major functions ----------------------------
 
+const litNodeClient = new LitNodeClient({
+    litNetwork: LitNetwork.DatilDev,
+    debug: false,
+});
+
 export async function createLitAction() {
     console.log("creating lit action..");
     swapObject.chainId = LIT_CHAINS[swapObject.evmChain].chainId;
@@ -92,13 +92,17 @@ export async function mintGrantBurnPKP(_action_ipfs: string) {
     _action_ipfs ? null : (_action_ipfs = action_ipfs);
 
     console.log("minting started..");
-    const signerA = await getEvmWallet();
+    const signer = await getEvmWallet();
+
+    console.log(signer)
 
     const litContracts = new LitContracts({
-        signer: signerA,
+        signer: signer,
         network: LitNetwork.DatilDev,
         debug: false,
     });
+
+    console.log(litContracts)
     await litContracts.connect();
 
     const bytesAction = await stringToBytes(_action_ipfs);
@@ -545,7 +549,7 @@ const getPkpInfoFromMintReceipt = async (txReceipt, litContractsClient) => {
     };
 };
 
-async function sessionSigEOA(_signer) {
+async function sessionSigEOA(_signer: ethers.Wallet) {
     console.log("creating session sigs..");
 
     await litNodeClient.connect();
