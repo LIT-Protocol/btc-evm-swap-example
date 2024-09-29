@@ -1,5 +1,3 @@
-
-
 import { generateBtcEthSwapLitActionCode } from "./create-swap-action";
 import { LitNodeClient } from "@lit-protocol/lit-node-client";
 import { LitContracts } from "@lit-protocol/contracts-sdk";
@@ -31,7 +29,7 @@ bitcoin.initEccLib(ecc);
 
 const litNodeClient = new LitNodeClient({
     litNetwork: LitNetwork.DatilDev,
-    debug: true,
+    debug: false,
 });
 
 // const Btc_Endpoint = "https://mempool.space";
@@ -75,7 +73,7 @@ const swapObject: SwapObject = {
 };
 
 let mintedPKP: Pkp,
-    action_ipfs = "";
+    action_ipfs: string;
 
 // major functions ----------------------------
 
@@ -279,7 +277,7 @@ async function prepareBtcTransaction({
     firstUtxo,
     feeRate,
 }) {
-    function estimateTransactionSize(numInputs, numOutputs) {
+    function estimateTransactionSize(numInputs: number, numOutputs: number) {
         const baseSize = 10; // Version (4 bytes) + Locktime (4 bytes) + 2 bytes for number of inputs and outputs
         const inputSize = 148; // P2PKH input size
         const outputSize = 34; // P2PKH output size
@@ -418,9 +416,9 @@ async function getEvmWallet() {
     return wallet;
 }
 
-function combineBtcSignature(rawTxHex: "string", btcSignature: any) {
-    let r = Buffer.from(btcSignature.r, "hex");
-    let s = Buffer.from(btcSignature.s, "hex");
+function combineBtcSignature(rawTxHex: string, btcSignature: any) {
+    let r: any = Buffer.from(btcSignature.r, "hex");
+    let s: any = Buffer.from(btcSignature.s, "hex");
     let rBN = new BN(r);
     let sBN = new BN(s);
 

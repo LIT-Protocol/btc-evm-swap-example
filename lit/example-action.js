@@ -1,11 +1,14 @@
-const btcSwapParams = {"counterPartyAddress":"mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq","ethAddress":"mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq","network":"testnet","value":1000};
 const evmConditions = {"contractAddress":"","standardContractType":"","chain":"yellowstone","method":"eth_getBalance","parameters":["address"],"returnValueTest":{"comparator":">=","value":"10000000000000000"}};
-const evmTransaction = {"to":"mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
-const evmClawbackTransaction = {"to":"0x6428B9170f12EaC6aBA3835775D2bf27e2D6EAd4","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
-const originTime = 1727558491068;
+const originTime = 1727609319421;
+const deadlineDays = 4;
+const btcSwapValue = 1000
+let evmTransaction = {"to":"0x48e6a467852Fa29710AaaCDB275F85db4Fa420eB","chainId":175188,"from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
+let evmClawbackTransaction = {"to":"0x48e6a467852Fa29710AaaCDB275F85db4Fa420eB","chainId":175188,"from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
 
 evmTransaction.from = evmClawbackTransaction.from = pkpAddress;
 evmConditions.parameters = [pkpAddress];
+evmTransaction = { ...evmTransaction, ...evmGasConfig };
+evmClawbackTransaction = { ...evmClawbackTransaction, ...evmGasConfig };
 
 const hashTransaction = (tx) => {
     return ethers.utils.arrayify(
@@ -15,10 +18,10 @@ const hashTransaction = (tx) => {
     );
 };
 
-function checkHasThreeDaysPassed(previousTime) {
+function checkHasDeadlinePassed() {
     const currentTime = Date.now();
-    const difference = currentTime - previousTime;
-    return difference / (1000 * 3600 * 24) >= 3 ? true : false;
+    const deadline = originTime + (deadlineDays * 24 * 60 * 60);
+    return currentTime <= deadline ? true : false;
 }
 
 async function validateUtxo() {
@@ -31,7 +34,7 @@ async function validateUtxo() {
             return false;
         }
         const utxoToSpend = fetchUtxo[0];
-        if (utxoToSpend.value < btcSwapParams.value) {
+        if (utxoToSpend.value < btcSwapValue) {
             return false;
         }
         if (
@@ -46,24 +49,14 @@ async function validateUtxo() {
     }
 }
 
-async function didSendBtc() {
-    try {
-        const response = await fetch(
-            `${BTC_ENDPOINT}/testnet/api/address/${pkpBtcAddress}/txs`
-        );
-        const transactions = await response.json();
-        if (transactions.length === 0) {
-            return false;
-        }
-        return transactions.length > 0;
-    } catch (e) {
-        throw new Error(`Could not check if BTC was sent: ${e}`);
-    }
-}
-
-async function go() {
-    try {
-        if (evmClawback == true) {
+async function go() {    
+    const evmConditionsPass = await Lit.Actions.checkConditions({
+        conditions: [evmConditions],
+        authSig,
+        chain: evmConditions.chain,
+    });        
+    if (typeof BTC_ENDPOINT === 'undefined') {
+        if(evmConditionsPass) {
             await Lit.Actions.signEcdsa({
                 toSign: hashTransaction(evmClawbackTransaction),
                 publicKey: pkpPublicKey,
@@ -72,17 +65,18 @@ async function go() {
             Lit.Actions.setResponse({
                 response: JSON.stringify({ evmClawbackTransaction: evmClawbackTransaction }),
             });
+        } else {
+            Lit.Actions.setResponse({
+                response: JSON.stringify({ error: "Swap conditions not met!" }),
+            });
         }
+        return;
+    }
+    try { 
         let response = {};
         const btcConditionPass = await validateUtxo();
-        response = {...response, btcConditionPass};
-        const didSendBtcFromPkp = await didSendBtc();
-        const evmConditionsPass = await Lit.Actions.checkConditions({
-            conditions: [evmConditions],
-            authSig,
-            chain: evmConditions.chain,
-        });
-        response = {...response, evmConditionsPass};
+        const checkHasDeadlinePassed = await checkHasDeadlinePassed();
+        response = {...response, evmConditionsPass, btcConditionPass, checkHasDeadlinePassed};
 
         if (btcConditionPass) {
             if (evmConditionsPass) {
@@ -101,7 +95,7 @@ async function go() {
                     evmTransaction,
                     btcTransaction: successTxHex,
                 };
-            } else if (checkHasThreeDaysPassed(originTime)) {
+            } else if (checkHasDeadlinePassed()) {
                 await Lit.Actions.signEcdsa({
                     toSign: clawbackHash,
                     publicKey: pkpPublicKey,
@@ -142,12 +136,12 @@ async function go() {
         } else {
             response = {
                 ...response,
-                error: "Swap conditions not met",
+                error: "Swap conditions not met!",
             };
         }
 
         Lit.Actions.setResponse({
-            response: JSON.stringify({ response: response }),
+            response: JSON.stringify({ response }),
         });
     } catch (err) {
         Lit.Actions.setResponse({

@@ -54,21 +54,6 @@ async function validateUtxo() {
     }
 }
 
-async function didSendBtc() {
-    try {
-        const response = await fetch(
-            \`\${BTC_ENDPOINT}\/testnet/api/address/\${pkpBtcAddress}\/txs\`
-        );
-        const transactions = await response.json();
-        if (transactions.length === 0) {
-            return false;
-        }
-        return transactions.length > 0;
-    } catch (e) {
-        throw new Error(\`Could not check if BTC was sent: \${e}\`);
-    }
-}
-
 async function go() {    
     const evmConditionsPass = await Lit.Actions.checkConditions({
         conditions: [evmConditions],
