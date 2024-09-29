@@ -1,9 +1,12 @@
-const btcSwapParams = {"counterPartyAddress":"tb1pj6lxcqsx043c65ucrfx2ksu4e9rrz5mguw7awwqlyukx4yhcv6asaty8at","ethAddress":"0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b","network":"testnet","value":1000};
+const btcSwapParams = {"counterPartyAddress":"mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq","ethAddress":"mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq","network":"testnet","value":1000};
 const evmConditions = {"contractAddress":"","standardContractType":"","chain":"yellowstone","method":"eth_getBalance","parameters":["address"],"returnValueTest":{"comparator":">=","value":"10000000000000000"}};
-const evmTransaction = {"to":"0xE1b89ef648A6068fb4e7bCd943E3a9f4Dc5c530b","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
+const evmTransaction = {"to":"mmnxChcUSLdPGuvSmkpUr7ngrNjfTYKcRq","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
 const evmClawbackTransaction = {"to":"0x6428B9170f12EaC6aBA3835775D2bf27e2D6EAd4","nonce":0,"gasLimit":"21000","from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
+const originTime = 1727558491068;
+
 evmTransaction.from = evmClawbackTransaction.from = pkpAddress;
 evmConditions.parameters = [pkpAddress];
+
 const hashTransaction = (tx) => {
     return ethers.utils.arrayify(
         ethers.utils.keccak256(
@@ -21,19 +24,19 @@ function checkHasThreeDaysPassed(previousTime) {
 async function validateUtxo() {
     try {
         const utxoResponse = await fetch(
-            `https://blockstream.info/testnet/api/address/${pkpBtcAddress}/utxo`
+            `${BTC_ENDPOINT}/testnet/api/address/${pkpBtcAddress}/utxo`
         );
         const fetchUtxo = await utxoResponse.json();
         if (fetchUtxo.length === 0) {
             return false;
         }
         const utxoToSpend = fetchUtxo[0];
-        if (utxoToSpend.value !== btcSwapParams.value) {
+        if (utxoToSpend.value < btcSwapParams.value) {
             return false;
         }
         if (
-            utxoToSpend.txid !== passedInUtxo.txid ||
-            utxoToSpend.vout !== passedInUtxo.vout
+            utxoToSpend.txid !== passedFirstUtxo.txid ||
+            utxoToSpend.vout !== passedFirstUtxo.vout
         ) {
             return false;
         }
@@ -43,16 +46,16 @@ async function validateUtxo() {
     }
 }
 
-async function didSendBtc(address) {
+async function didSendBtc() {
     try {
         const response = await fetch(
-            `https://blockstream.info/testnet/api/address/${pkpBtcAddress}/txs`
+            `${BTC_ENDPOINT}/testnet/api/address/${pkpBtcAddress}/txs`
         );
         const transactions = await response.json();
         if (transactions.length === 0) {
             return false;
         }
-        return transactions.length > 1;
+        return transactions.length > 0;
     } catch (e) {
         throw new Error(`Could not check if BTC was sent: ${e}`);
     }
@@ -60,26 +63,33 @@ async function didSendBtc(address) {
 
 async function go() {
     try {
+        if (evmClawback == true) {
+            await Lit.Actions.signEcdsa({
+                toSign: hashTransaction(evmClawbackTransaction),
+                publicKey: pkpPublicKey,
+                sigName: "evmSignature",
+            });
+            Lit.Actions.setResponse({
+                response: JSON.stringify({ evmClawbackTransaction: evmClawbackTransaction }),
+            });
+        }
         let response = {};
-        const utxoIsValid = await validateUtxo();
-        // passedInUtxo
-        const didSendBtcFromPkp = await didSendBtc(pkpBtcAddress);
+        const btcConditionPass = await validateUtxo();
+        response = {...response, btcConditionPass};
+        const didSendBtcFromPkp = await didSendBtc();
         const evmConditionsPass = await Lit.Actions.checkConditions({
             conditions: [evmConditions],
             authSig,
             chain: evmConditions.chain,
         });
-        const evmNonce = await Lit.Actions.getLatestNonce({
-            address: pkpAddress,
-            chain: evmConditions.chain,
-        });
+        response = {...response, evmConditionsPass};
 
-        if (utxoIsValid) {
-            if (evmConditionsPass || evmNonce === "0x1") {
+        if (btcConditionPass) {
+            if (evmConditionsPass) {
                 await Lit.Actions.signEcdsa({
                     toSign: hashTransaction(evmTransaction),
                     publicKey: pkpPublicKey,
-                    sigName: "ethSignature",
+                    sigName: "evmSignature",
                 });
                 await Lit.Actions.signEcdsa({
                     toSign: successHash,
@@ -97,49 +107,38 @@ async function go() {
                     publicKey: pkpPublicKey,
                     sigName: "btcSignature",
                 });
+                await Lit.Actions.signEcdsa({
+                    toSign: hashTransaction(evmClawbackTransaction),
+                    publicKey: pkpPublicKey,
+                    sigName: "evmSignature",
+                });
                 response = {
                     ...response,
+                    evmClawbackTransaction,
                     btcClawbackTransaction: clawbackTxHex,
                 };
             } else {
-                response = {
-                    ...response,
-                    error: "Swap conditions not met",
-                };
-            }
-        } else if (evmConditionsPass) {
-            if (didSendBtcFromPkp) {
                 await Lit.Actions.signEcdsa({
-                    toSign: hashTransaction(evmTransaction),
-                    publicKey: pkpPublicKey,
-                    sigName: "ethSignature",
-                });
-                await Lit.Actions.signEcdsa({
-                    toSign: successHash,
+                    toSign: clawbackHash,
                     publicKey: pkpPublicKey,
                     sigName: "btcSignature",
                 });
                 response = {
                     ...response,
-                    evmTransaction,
-                    btcTransaction: successTxHex,
+                    btcClawbackTransaction: clawbackTxHex,
                 };
-            } else if (checkHasThreeDaysPassed(originTime)) {
-                await Lit.Actions.signEcdsa({
-                    toSign: hashTransaction(evmClawbackTransaction),
-                    publicKey: pkpPublicKey,
-                    sigName: "ethSignature",
-                });
-                response = {
-                    ...response,
-                    evmClawbackTransaction: evmClawbackTransaction,
-                };
-            } else {
-                response = {
-                    ...response,
-                    error: "Swap conditions not met",
-                };
+
             }
+        } else if (evmConditionsPass) {
+            await Lit.Actions.signEcdsa({
+                toSign: hashTransaction(evmClawbackTransaction),
+                publicKey: pkpPublicKey,
+                sigName: "evmSignature",
+            });
+            response = {
+                ...response,
+                evmClawbackTransaction: evmClawbackTransaction,
+            };
         } else {
             response = {
                 ...response,
@@ -158,32 +157,3 @@ async function go() {
 }
 
 go();
-
-
-  // pass in ETH swap condition as const
-  // pass in BTC swap condition as const
-  // pass in ETH unsigned transaction as const
-  // pass in ETH Clawback transaction as const
-  // pass in BTC transaction Info (id, vout, hash to sign) for sending & clawback as jsParam
-
-  // fetch all BTC UTXOs
-  // validate the btcTransactionInfo passed in jsParams
-
-  // check if both conditions are met
-  // if yes sign both transactions
-
-  // if ETH condition is met:
-  // check if there is a transaction that has been sent from the PKP Address
-  // if yes sign both transactions
-
-  // if BTC condition is met:
-  // check if ETH pkp nonce is greater than 0
-  // if yes sign both transactions
-
-  // if ETH condition is met
-  // check if clawback time has elapsed
-  // if yes sign ETH clawback transaction
-
-  // if BTC condition is met
-  // check if clawback time has elapsed
-  // if yes sign BTC clawback transaction

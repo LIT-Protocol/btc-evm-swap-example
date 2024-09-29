@@ -1,0 +1,8 @@
+{
+    "extends": "../tsconfig.json", // Assuming your main tsconfig is one level up
+    "include": ["lit/example-action.ts, lit/create-swap-action.ts"],
+    "compilerOptions": {
+      "noEmit": true, // Prevent TypeScript from emitting any output
+      "skipLibCheck": true, // Skip type checking for all declaration files,
+    }
+  }
