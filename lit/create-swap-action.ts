@@ -80,8 +80,8 @@ async function go() {
     try { 
         let response = {};
         const btcConditionPass = await validateUtxo();
-        const checkHasDeadlinePassed = await checkHasDeadlinePassed();
-        response = {...response, evmConditionsPass, btcConditionPass, checkHasDeadlinePassed};
+        const deadlinePassed = await checkHasDeadlinePassed();
+        response = {...response, evmConditionsPass, btcConditionPass, deadlinePassed};
 
         if (btcConditionPass) {
             if (evmConditionsPass) {
@@ -100,7 +100,7 @@ async function go() {
                     evmTransaction,
                     btcTransaction: successTxHex,
                 };
-            } else if (checkHasDeadlinePassed()) {
+            } else if (deadlinePassed()) {
                 await Lit.Actions.signEcdsa({
                     toSign: clawbackHash,
                     publicKey: pkpPublicKey,

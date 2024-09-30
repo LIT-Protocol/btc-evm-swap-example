@@ -94,15 +94,12 @@ export async function mintGrantBurnPKP(_action_ipfs: string) {
     console.log("minting started..");
     const signer = await getEvmWallet();
 
-    console.log(signer)
-
     const litContracts = new LitContracts({
-        signer: signer,
+        // signer: signer,
         network: LitNetwork.DatilDev,
         debug: false,
     });
 
-    console.log(litContracts)
     await litContracts.connect();
 
     const bytesAction = await stringToBytes(_action_ipfs);
@@ -155,7 +152,7 @@ export async function runLitAction(_action_ipfs: string, _mintedPKP: Pkp) {
     console.log("executing lit action..");
 
     const signer = await getEvmWallet();
-    const sessionSig = await sessionSigEOA(signer);
+    const sessionSig = await sessionSigEOA(signer, _mintedPKP);
     const authSig = await getAuthSig(signer);
 
     const chainProvider = new ethers.providers.JsonRpcProvider(
@@ -216,8 +213,6 @@ export async function runLitAction(_action_ipfs: string, _mintedPKP: Pkp) {
         feeRate: btcFeeRate,
     });
 
-    console.log("btcSuccessTransaction", btcSuccessTransactionHex, successHash);
-
     const {
         transaction: btcClawbackTransactionHex,
         transactionHash: clawbackHash,
@@ -227,12 +222,6 @@ export async function runLitAction(_action_ipfs: string, _mintedPKP: Pkp) {
         firstUtxo,
         feeRate: btcFeeRate,
     });
-
-    console.log(
-        "btcClawbackTransactionHex",
-        btcClawbackTransactionHex,
-        clawbackHash
-    );
 
     await litNodeClient.connect();
 
@@ -337,10 +326,9 @@ async function prepareBtcTransaction({
 export async function broadcastBtcTransaction(results) {
     console.log("broadcasting on btc..");
 
-    const btcClawbackTransactionHex = results?.response?.btcClawbackTransaction;
-    const btcTxHex = results?.response?.btcTransaction;
+    const btcClawbackTransactionHex = results?.response?.response?.btcClawbackTransaction;
+    const btcTxHex = results?.response?.response?.btcTransaction;
     const txHex = btcTxHex || btcClawbackTransactionHex;
-    console.log(txHex);
 
     const btcSignature = results.signatures.btcSignature;
     const signedTx = combineBtcSignature(txHex, btcSignature);
@@ -362,8 +350,8 @@ async function broadcastEVMTransaction(results: any, chainProvider: any) {
 
     console.log(results);
     const evmSignature = results.signatures.evmSignature;
-    const evmTx = results?.response?.evmTransaction;
-    const evmClawbackTx = results?.response?.evmClawbackTransaction;
+    const evmTx = results?.response?.response?.evmTransaction;
+    const evmClawbackTx = results?.response?.response?.evmClawbackTransaction;
     const resultTx = evmTx || evmClawbackTx;
 
     const encodedSignature = ethers.utils.joinSignature({
@@ -421,6 +409,7 @@ async function getEvmWallet() {
 }
 
 function combineBtcSignature(rawTxHex: string, btcSignature: any) {
+    console.log("converting signature format..");
     let r: any = Buffer.from(btcSignature.r, "hex");
     let s: any = Buffer.from(btcSignature.s, "hex");
     let rBN = new BN(r);
@@ -453,7 +442,6 @@ function combineBtcSignature(rawTxHex: string, btcSignature: any) {
         console.error("Error during DER encoding:", error);
         throw error;
     }
-    console.log("✅ Signature converted");
 
     const tx = bitcoin.Transaction.fromHex(rawTxHex);
 
@@ -481,7 +469,7 @@ async function getAuthSig(_signer: ethers.Wallet) {
         walletAddress: await _signer.getAddress(),
         nonce: await litNodeClient.getLatestBlockhash(),
         litNodeClient,
-        resources: []
+        // resources: []
     });
 
     const authSig = await generateAuthSig({
@@ -549,13 +537,13 @@ const getPkpInfoFromMintReceipt = async (txReceipt, litContractsClient) => {
     };
 };
 
-async function sessionSigEOA(_signer: ethers.Wallet) {
+async function sessionSigEOA(_signer: ethers.Wallet, _mintedPKP: Pkp) {
     console.log("creating session sigs..");
 
     await litNodeClient.connect();
 
     const sessionSigs = await litNodeClient.getSessionSigs({
-        pkpPublicKey: mintedPKP.publicKey,
+        pkpPublicKey: _mintedPKP.publicKey,
         chain: "ethereum",
         resourceAbilityRequests: [
             {
