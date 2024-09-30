@@ -1,5 +1,5 @@
 const evmConditions = {"contractAddress":"","standardContractType":"","chain":"yellowstone","method":"eth_getBalance","parameters":["address"],"returnValueTest":{"comparator":">=","value":"10000000000000000"}};
-const originTime = 1727609319421;
+const originTime = 1727704910440;
 const deadlineDays = 4;
 const btcSwapValue = 1000
 let evmTransaction = {"to":"0x48e6a467852Fa29710AaaCDB275F85db4Fa420eB","chainId":175188,"from":"{{pkpPublicKey}}","value":"10000000000000000","type":2};
@@ -75,8 +75,8 @@ async function go() {
     try { 
         let response = {};
         const btcConditionPass = await validateUtxo();
-        const checkHasDeadlinePassed = await checkHasDeadlinePassed();
-        response = {...response, evmConditionsPass, btcConditionPass, checkHasDeadlinePassed};
+        const deadlinePassed = await checkHasDeadlinePassed();
+        response = {...response, evmConditionsPass, btcConditionPass, deadlinePassed};
 
         if (btcConditionPass) {
             if (evmConditionsPass) {
@@ -95,7 +95,7 @@ async function go() {
                     evmTransaction,
                     btcTransaction: successTxHex,
                 };
-            } else if (checkHasDeadlinePassed()) {
+            } else if (deadlinePassed()) {
                 await Lit.Actions.signEcdsa({
                     toSign: clawbackHash,
                     publicKey: pkpPublicKey,

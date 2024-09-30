@@ -342,13 +342,12 @@ export async function broadcastBtcTransaction(results) {
     });
 
     const txid = await broadcastResponse.text();
-    console.log("Transaction broadcast successfully. TXID:", txid);
+    console.log(`transaction broadcast successfully. tx: ${Btc_Endpoint}/testnet/tx/${txid}`);
 }
 
 async function broadcastEVMTransaction(results: any, chainProvider: any) {
     console.log("broadcasting on evm..");
-
-    console.log(results);
+    
     const evmSignature = results.signatures.evmSignature;
     const evmTx = results?.response?.response?.evmTransaction;
     const evmClawbackTx = results?.response?.response?.evmClawbackTransaction;
@@ -366,7 +365,7 @@ async function broadcastEVMTransaction(results: any, chainProvider: any) {
     const receipt = await tx.wait();
     const blockExplorer = LIT_CHAINS[swapObject.evmChain].blockExplorerUrls[0];
 
-    console.log(`tx: ${blockExplorer}/tx/${receipt.transactionHash}`);
+    console.log(`transaction broadcast successfully. tx: ${blockExplorer}/tx/${receipt.transactionHash}`);
 }
 
 export async function getFundsStatusPKP(_mintedPKP: Pkp) {
